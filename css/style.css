@@ -17,6 +17,7 @@ main {
     justify-content: center;
     align-items: center;
     height: 100vh;
+    position: relative;
     width: 100vw;
 }
 
@@ -24,4 +25,27 @@ main > canvas {
     outline: 2px solid #ACACAC;
     border-radius: 5px;
     color: #00000065;
+}
+
+div#links {
+    position: absolute;
+    left: 0%;
+    bottom: 0%;
+}
+
+div#links > div.icon {
+
+}
+
+div#links > div.icon > a > img {
+    transition: 0.5s;
+    filter: opacity(30%);
+    width: 60px;
+    margin: 10px;
+}
+
+div#links > div.icon > a > img:hover {
+    transition: 0.5s;
+    filter: opacity(100%);
+    transform: scale(1.1);
 }
