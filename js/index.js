@@ -15,19 +15,23 @@ class Control {
         this.AddEvent();
     }
     set SetKeys(keys) {
-        keys.forEach((key) => { this._keys.push({ pressed: false, code: key.code, cb: key.cb }); });
+        keys.forEach((key) => { this._keys.push({ pressed: false, repete: key.repete, code: key.code, cb: key.cb }); });
     }
     AddEvent() {
         document.addEventListener("keydown", (Event) => {
             this._keys.forEach((key) => {
                 if (key.code == Event.code) {
-                    key.pressed = true;
+                    if (key.repete) {
+                        key.pressed = true;
+                        return;
+                    }
+                    key.cb();
                 }
             });
         });
         document.addEventListener("keyup", (Event) => {
             this._keys.forEach((key) => {
-                if (key.code == Event.code) {
+                if (key.code == Event.code && key.repete) {
                     key.pressed = false;
                 }
             });
@@ -44,6 +48,7 @@ class Control {
 class Player {
     constructor(props) {
         this._speed = { x: 0, y: 0 };
+        this._playerIsJumping = false;
         this._position = props.position;
         this._origin = { x: props.position.x, y: props.position.y };
         this._size = props.size;
@@ -62,6 +67,7 @@ class Player {
         this._position.y += this._speed.y;
         if (this._position.y + this._size.height > canvasSize.height) {
             this._speed.y = 0;
+            this._playerIsJumping = false;
             this._position.y = canvasSize.height - this._size.height;
         }
     }
@@ -72,6 +78,7 @@ class Player {
     Jump(canvasSize) {
         if (this._position.y + this._size.height < canvasSize.height)
             return;
+        this._playerIsJumping = true;
         this._speed.y = 0;
         this._speed.y -= this._force;
     }
@@ -84,10 +91,66 @@ class Player {
         return false;
     }
 }
+class Sprite {
+    constructor() {
+        this._frame = 0;
+        this._stat = "";
+        this._animation = [];
+        this._await = 0;
+    }
+    get Animation() {
+        return this._animation.filter((animation) => { return animation.name == this._stat; })[0];
+    }
+    get Sprite() {
+        var _a;
+        return (_a = this.Animation) === null || _a === void 0 ? void 0 : _a.sprites[this._frame];
+    }
+    set Stat(stat) {
+        if (stat == this._stat)
+            return;
+        this._frame = 0;
+        this._await = 0;
+        this._stat = stat;
+    }
+    Load(animations) {
+        return new Promise((resolve) => __awaiter(this, void 0, void 0, function* () {
+            for (let animation in animations) {
+                let sprites = [];
+                for (let sprite in animations[animation].sprites) {
+                    let image = yield LoadImage(animations[animation].sprites[sprite].src);
+                    sprites.push({
+                        image: image,
+                        time: animations[animation].sprites[sprite].time
+                    });
+                }
+                this._animation.push({
+                    name: animations[animation].name,
+                    sprites: sprites
+                });
+                resolve();
+            }
+        }));
+    }
+    Refresh() {
+        if (this.Animation == undefined)
+            return;
+        this._await++;
+        if (this._await < this.Animation.sprites[this._frame].time)
+            return;
+        this._await = 0;
+        if (this._frame >= this.Animation.sprites.length - 1) {
+            this._frame = 0;
+            return;
+        }
+        this._frame++;
+    }
+}
 class Render {
     constructor(props) {
         this._canvasElement = document.createElement("canvas");
         this._context = this._canvasElement.getContext("2d");
+        this.spritePlayer = new Sprite();
+        this.spriteObstacle = new Sprite();
         this._size = props.size;
         this.SetCanvasSize = props.size;
     }
@@ -112,32 +175,75 @@ class Render {
     get Width() { return this._size.width; }
     get Height() { return this._size.height; }
     get Element() { return this._canvasElement; }
+    Load() {
+        return new Promise((resolve, reject) => __awaiter(this, void 0, void 0, function* () {
+            try {
+                //Fonts
+                this.Background("#202124");
+                this.Text("Carregando Fonts ...", "white", "center", this.Width / 2, this.Height / 2, "20px Arial", true);
+                const Handjet = new FontFace("Handjet", "url(fonts/Handjet/Handjet.ttf)");
+                document.fonts.add(yield Handjet.load());
+                //Image
+                this.Background("#202124");
+                this.Text("Carregando Imagens ...", "white", "center", this.Width / 2, this.Height / 2, "25px Handjet", true);
+                yield this.spritePlayer.Load([
+                    { name: "parado", sprites: [
+                            { src: "image/dino0.png", time: 25 },
+                            { src: "image/dino1.png", time: 25 },
+                        ] },
+                    { name: "pulando", sprites: [
+                            { src: "image/dino2.png", time: 25 },
+                        ] }
+                ]);
+                yield this.spriteObstacle.Load([
+                    { name: "parado", sprites: [
+                            { src: "image/obs0.png", time: 25 }
+                        ] }
+                ]);
+                resolve();
+            }
+            catch (reason) {
+                reject(reason);
+            }
+        }));
+    }
     Background(color) {
         this._context.fillStyle = color;
         this._context.fillRect(0, 0, this.Width, this.Height);
     }
-    Player(player) {
-        this._context.fillStyle = "black";
-        this._context.fillRect(player.X, player.Y, player.Width, player.Height);
+    Player(player, hitBox) {
+        if (hitBox) {
+            this._context.fillStyle = "#00000065";
+            this._context.fillRect(player.X, player.Y, player.Width, player.Height);
+        }
+        this.spritePlayer.Sprite ? this._context.drawImage(this.spritePlayer.Sprite.image, player.X, player.Y, player.Width, player.Height) : null;
     }
-    Obstacle(obstacle) {
-        this._context.fillStyle = "black";
-        this._context.fillRect(obstacle.X, obstacle.Y, obstacle.Width, obstacle.Height);
+    Obstacle(obstacle, hitBox) {
+        if (hitBox) {
+            this._context.fillStyle = "black";
+            this._context.fillRect(obstacle.X, obstacle.Y, obstacle.Width, obstacle.Height);
+        }
+        this.spriteObstacle.Sprite ? this._context.drawImage(this.spriteObstacle.Sprite.image, obstacle.X, obstacle.Y, obstacle.Width, obstacle.Height) : null;
     }
-    Loading(color) {
+    filterVHS(amount, size) {
+        this._context.fillStyle = "white";
+        let count = 0;
+        while (count <= amount) {
+            let positionX = Math.floor(Math.random() * this.Width - 1);
+            let positionY = Math.floor(Math.random() * this.Width - 1);
+            this._context.fillRect(positionX, positionY, size.width, size.height);
+            count++;
+        }
+    }
+    Text(text, color, textAlign, x, y, font, shadow) {
+        font ? this._context.font = font : null;
+        this._context.textAlign = textAlign;
+        if (shadow) {
+            this._context.fillStyle = "black";
+            this._context.fillText(text, x + 3, y + 3);
+        }
         this._context.fillStyle = color;
-        this._context.textAlign = "center";
-        this._context.fillText("Carregando ...", this.Width / 2, this.Height / 2);
-    }
-    Error(color) {
-        this._context.fillStyle = color;
-        this._context.textAlign = "center";
-        this._context.fillText("Error ...", this.Width / 2, this.Height / 2);
-    }
-    GameOver(color) {
-        this._context.fillStyle = color;
-        this._context.textAlign = "center";
-        this._context.fillText("GameOver", this.Width / 2, this.Height / 2);
+        this._context.fillText(text, x, y);
     }
 }
 class Obstacle {
@@ -160,12 +266,17 @@ class Game {
         this._on = false;
         this._gameOver = false;
         this._obstacles = [];
+        this._hitBox = false;
         this._frames = {
             addObstacleSpeed: 0,
             spawnObstacle: 0
         };
         this.render = new Render(props.renderProps);
         this.player = new Player(props.playerProps);
+        this._points = {
+            value: 0,
+            record: Number(isNaN(Number(localStorage.getItem("points"))) ? 0 : localStorage.getItem("points"))
+        };
         this._opticObstacle = {
             spawn: {
                 frame: props.obstacleOption.spawn.frame,
@@ -183,7 +294,7 @@ class Game {
         };
         this.control = new Control({
             keys: [
-                { code: props.control.jump, cb: () => {
+                { code: props.control.jump, repete: true, cb: () => {
                         if (this._gameOver == true)
                             return;
                         this.player.Jump(this.render.Size);
@@ -192,6 +303,9 @@ class Game {
                         if (this._gameOver == false)
                             return;
                         this.Reset();
+                    } },
+                { code: "KeyH", cb: () => {
+                        this._hitBox = !this._hitBox;
                     } }
             ]
         });
@@ -201,16 +315,19 @@ class Game {
     Start() {
         return new Promise((resolve, reject) => __awaiter(this, void 0, void 0, function* () {
             try {
-                this.render.Loading("white");
                 if (this._on)
                     throw "";
+                yield this.render.Load();
+                this.render.spritePlayer.Stat = "parado";
+                this.render.spriteObstacle.Stat = "parado";
                 setTimeout(() => {
                     this._on = true;
                     resolve();
                 }, 1000);
             }
             catch (reason) {
-                this.render.Error("red");
+                this.render.Background("#202124");
+                this.render.Text("Não foi possível carregar o jogo :(", "red", "center", this.render.Width / 2, this.render.Height / 2, "25px Handjet, Arial", true);
                 reject(reason);
             }
         }));
@@ -218,6 +335,7 @@ class Game {
     Reset() {
         this._gameOver = false;
         this.player.Reset();
+        this._points.value = 0;
         this._frames.addObstacleSpeed = 0;
         this._frames.spawnObstacle = 0;
         this._opticObstacle.speed.value = this._opticObstacle.speed.default;
@@ -235,6 +353,7 @@ class Game {
             return;
         this._frames.addObstacleSpeed++;
         this._frames.spawnObstacle++;
+        this._points.value++;
         if (this._frames.spawnObstacle >= this._opticObstacle.spawn.frame) {
             this._frames.spawnObstacle = 0;
             let random = Math.floor(Math.random() * 3);
@@ -249,12 +368,16 @@ class Game {
             this._opticObstacle.speed.value = this._opticObstacle.speed.value >= this._opticObstacle.speed.max ? this._opticObstacle.speed.max : this._opticObstacle.speed.value + this._opticObstacle.speed.add;
         }
         let obstacles = [];
-        this._obstacles.forEach((obstacle, index) => {
+        this._obstacles.forEach((obstacle) => {
             if (obstacle.X + obstacle.Width > 0) {
                 obstacle.Refresh(-this._opticObstacle.speed.value);
                 obstacles.push(obstacle);
                 if (this.player.Collision(obstacle)) {
                     this._gameOver = true;
+                    if (this._points.record < this._points.value) {
+                        this._points.record = this._points.value;
+                        localStorage.setItem("points", String(this._points.record));
+                    }
                 }
             }
         });
@@ -263,13 +386,32 @@ class Game {
         this.player.Refresh(this.render.Size);
     }
     Render() {
+        //BackGround
         this.render.Background("#202124");
+        //Player
+        this.render.spritePlayer.Stat = "parado";
+        if (this.player._playerIsJumping)
+            this.render.spritePlayer.Stat = "pulando";
+        this.render.spritePlayer.Refresh();
+        this.render.Player(this.player, this._hitBox);
+        //Obstacle
+        this.render.spriteObstacle.Refresh();
+        this._obstacles.forEach((obstacle) => { this.render.Obstacle(obstacle, this._hitBox); });
         if (this._gameOver) {
-            this.render.GameOver("red");
+            //GameOver
+            this.render.Text("Game Over", "red", "center", this.render.Width / 2, this.render.Height / 2 - 35, "40px Handjet", true);
+            this.render.Text('Aperte "R" para recomeçar do zero', "red", "center", this.render.Width / 2, this.render.Height / 2, "25px Handjet", true);
             return;
         }
-        this.render.Player(this.player);
-        this._obstacles.forEach((obstacle) => { this.render.Obstacle(obstacle); });
+        //Normal
+        //Text
+        this.render.Text(`${this._points.value > this._points.record ? `Novo record => ${this._points.value}` : `Pontos => ${this._points.value}/${this._points.record}`}`, this._points.value > this._points.record ? "green" : "white", "right", this.render.Width - 10, 30, "25px Handjet", true);
+        this.render.Text(`Data => ${new Date().getDate()}/${new Date().getMonth() + 1}/${new Date().getFullYear()}`, "white", "left", 10, 30, "25px Handjet", true);
+        this.render.Text(`Velocidade => ${this._opticObstacle.speed.value}`, "white", "left", 10, 60, "25px Handjet", true);
+        this.render.filterVHS(50, {
+            width: 1,
+            height: 1
+        });
     }
     AddObstacle() {
         if (!this._on)
@@ -286,14 +428,14 @@ class Game {
 const game = new Game({
     playerProps: {
         position: { x: 50, y: 50 },
-        size: { width: 50, height: 50 },
+        size: { width: 65, height: 65 },
         force: 14,
         gravity: 0.6
     },
     renderProps: {
         size: {
-            width: 1200,
-            height: 600
+            width: 1000,
+            height: 500
         }
     },
     control: {
@@ -307,7 +449,7 @@ const game = new Game({
             frame: 250
         },
         spawn: {
-            frame: 110,
+            frame: 90,
             max: 2
         },
         size: {
@@ -317,6 +459,13 @@ const game = new Game({
     },
     element: document.querySelector("main") || document.body
 });
+function LoadImage(src) {
+    return new Promise((resolve) => {
+        let image = new Image();
+        image.src = src;
+        image.addEventListener("load", () => { resolve(image); });
+    });
+}
 game.Start()
     .then(() => {
     function loop() {
@@ -324,4 +473,5 @@ game.Start()
         requestAnimationFrame(loop);
     }
     loop();
-});
+})
+    .catch((r) => { console.error(r); });

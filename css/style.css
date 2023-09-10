@@ -23,4 +23,5 @@ main {
 main > canvas {
     outline: 2px solid #ACACAC;
     border-radius: 5px;
+    color: #00000065;
 }
